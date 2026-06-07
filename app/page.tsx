@@ -82,15 +82,25 @@ export default function LandingPage() {
       });
   }, []);
 
-  // Close search dropdown on click outside
+  // Close search dropdown on click outside OR Escape key
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
         setShowSearchDropdown(false);
       }
     }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setShowSearchDropdown(false);
+        setSearchQuery('');
+      }
+    }
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   // Filter nodes for the active Macro Event
@@ -281,59 +291,68 @@ export default function LandingPage() {
             {/* Search Dropdown */}
             {showSearchDropdown && searchQuery && (
               <div className="absolute left-4 right-4 top-[calc(100%-4px)] bg-[#0f1422]/98 border border-slate-800 rounded-lg shadow-2xl overflow-y-auto max-h-80 z-50 p-3 flex flex-col gap-4">
-                {/* Event Results */}
-                <div>
-                  <h4 className="text-[10px] font-bold text-indigo-400 font-mono tracking-wider mb-2">
-                    MACRO EVENTS ({filteredEventsResult.length})
-                  </h4>
-                  {filteredEventsResult.length === 0 ? (
-                    <p className="text-[11px] text-slate-500 italic px-2">No matching events.</p>
-                  ) : (
-                    <div className="flex flex-col gap-1.5">
-                      {filteredEventsResult.map((e) => (
-                        <button
-                          key={e.event_id}
-                          onClick={() => handleSearchEventClick(e)}
-                          className="w-full text-left hover:bg-slate-800/60 p-2 rounded text-xs transition-colors cursor-pointer"
-                        >
-                          <span className="text-orange-500 font-mono text-[9px] font-bold block">
-                            {e.event_id}
-                          </span>
-                          <span className="text-slate-200 font-semibold truncate block">
-                            {e.title}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
 
-                {/* Node Results */}
-                <div>
-                  <h4 className="text-[10px] font-bold text-indigo-400 font-mono tracking-wider mb-2">
-                    INDIVIDUAL NODES ({filteredNodesResult.length})
-                  </h4>
-                  {filteredNodesResult.length === 0 ? (
-                    <p className="text-[11px] text-slate-500 italic px-2">No matching node titles.</p>
-                  ) : (
-                    <div className="flex flex-col gap-1.5">
-                      {filteredNodesResult.map((n) => (
-                        <button
-                          key={n.node_id}
-                          onClick={() => handleSearchNodeClick(n)}
-                          className="w-full text-left hover:bg-slate-800/60 p-2 rounded text-xs transition-colors cursor-pointer"
-                        >
-                          <span className="text-indigo-400 font-mono text-[9px] font-bold block">
-                            Node {n.node_id}
-                          </span>
-                          <span className="text-slate-200 font-semibold truncate block">
-                            {n.title}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                {/* Unified empty state when both tiers have zero matches */}
+                {filteredEventsResult.length === 0 && filteredNodesResult.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-6 gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-7 h-7 text-slate-600">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.602 10.602Z" />
+                    </svg>
+                    <p className="text-xs text-slate-500 italic">No results found</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Event Results tier */}
+                    {filteredEventsResult.length > 0 && (
+                      <div>
+                        <h4 className="text-[10px] font-bold text-indigo-400 font-mono tracking-wider mb-2">
+                          MACRO EVENTS ({filteredEventsResult.length})
+                        </h4>
+                        <div className="flex flex-col gap-1.5">
+                          {filteredEventsResult.map((e) => (
+                            <button
+                              key={e.event_id}
+                              onClick={() => handleSearchEventClick(e)}
+                              className="w-full text-left hover:bg-slate-800/60 p-2 rounded text-xs transition-colors cursor-pointer"
+                            >
+                              <span className="text-orange-500 font-mono text-[9px] font-bold block">
+                                {e.event_id}
+                              </span>
+                              <span className="text-slate-200 font-semibold truncate block">
+                                {e.title}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Node Results tier */}
+                    {filteredNodesResult.length > 0 && (
+                      <div>
+                        <h4 className="text-[10px] font-bold text-indigo-400 font-mono tracking-wider mb-2">
+                          INDIVIDUAL NODES ({filteredNodesResult.length})
+                        </h4>
+                        <div className="flex flex-col gap-1.5">
+                          {filteredNodesResult.map((n) => (
+                            <button
+                              key={n.node_id}
+                              onClick={() => handleSearchNodeClick(n)}
+                              className="w-full text-left hover:bg-slate-800/60 p-2 rounded text-xs transition-colors cursor-pointer"
+                            >
+                              <span className="text-indigo-400 font-mono text-[9px] font-bold block">
+                                Node {n.node_id}
+                              </span>
+                              <span className="text-slate-200 font-semibold truncate block">
+                                {n.title}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>
