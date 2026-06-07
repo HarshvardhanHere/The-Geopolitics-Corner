@@ -9,6 +9,7 @@ interface EventData {
   title: string;
   start_date: string;
   tags: string[];
+  nodeCount: number;
 }
 
 interface NodeData {
@@ -263,6 +264,9 @@ export default function LandingPage() {
                         ))}
                       </div>
                     )}
+                    <div className="text-[10px] text-slate-500 font-mono mt-1 font-semibold">
+                      {event.nodeCount} {event.nodeCount === 1 ? 'node' : 'nodes'}
+                    </div>
                   </button>
                 );
               })

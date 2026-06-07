@@ -6,6 +6,11 @@ export async function GET() {
     const [events, nodes, connections, mappings] = await Promise.all([
       prisma.event.findMany({
         orderBy: { start_date: 'asc' },
+        include: {
+          _count: {
+            select: { nodes: true }
+          }
+        }
       }),
       prisma.node.findMany({
         orderBy: { date: 'asc' },
@@ -22,7 +27,8 @@ export async function GET() {
 
     const formattedEvents = events.map(e => ({
       ...e,
-      start_date: e.start_date.toISOString().split('T')[0]
+      start_date: e.start_date.toISOString().split('T')[0],
+      nodeCount: e._count.nodes
     }));
 
     return NextResponse.json({

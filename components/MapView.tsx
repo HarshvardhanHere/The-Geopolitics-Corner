@@ -26,10 +26,12 @@ export default function MapView({ activeNodes, activeEvent, onNodeClick }: MapVi
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const geoJsonLayerRef = useRef<L.GeoJSON | null>(null);
+  const indiaLayerRef = useRef<L.GeoJSON | null>(null);
   const linesLayerRef = useRef<L.FeatureGroup | null>(null);
   const capitalsLayerRef = useRef<L.FeatureGroup | null>(null);
 
   const [worldGeoJson, setWorldGeoJson] = useState<any>(null);
+  const [indiaGeoJson, setIndiaGeoJson] = useState<any>(null);
   const [hoveredConnection, setHoveredConnection] = useState<{
     entityA: string;
     entityB: string;
@@ -39,31 +41,36 @@ export default function MapView({ activeNodes, activeEvent, onNodeClick }: MapVi
 
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch world boundaries GeoJSON once
+  // Fetch world and India GeoJSONs once
   useEffect(() => {
-    fetch('/world.json')
-      .then(res => res.json())
-      .then(data => setWorldGeoJson(data))
-      .catch(err => console.error('Error loading world GeoJSON:', err));
+    Promise.all([
+      fetch('/world.json').then(res => res.json()),
+      fetch('/India_Official_Boundary.geojson').then(res => res.json())
+    ])
+      .then(([worldData, indiaData]) => {
+        setWorldGeoJson(worldData);
+        setIndiaGeoJson(indiaData);
+      })
+      .catch(err => console.error('Error loading map GeoJSONs:', err));
   }, []);
 
   // Initialize Map
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
-    // Create Leaflet Map with panning and zooming completely disabled for public users
+    // Create Leaflet Map with dragging and zooming enabled for all users
     const map = L.map(mapContainerRef.current, {
       center: [20, 0],
       zoom: 2,
       minZoom: 2,
       maxZoom: 6,
-      zoomControl: false,
-      dragging: false,
-      scrollWheelZoom: false,
-      doubleClickZoom: false,
-      boxZoom: false,
-      touchZoom: false,
-      keyboard: false,
+      zoomControl: true, // Enable zoom controls (+/-)
+      dragging: true,
+      scrollWheelZoom: true,
+      doubleClickZoom: true,
+      boxZoom: true,
+      touchZoom: true,
+      keyboard: true,
       attributionControl: false,
     });
 
@@ -76,6 +83,11 @@ export default function MapView({ activeNodes, activeEvent, onNodeClick }: MapVi
     linesLayerRef.current = L.featureGroup().addTo(map);
     capitalsLayerRef.current = L.featureGroup().addTo(map);
 
+    // Map click closes the floating card panel
+    map.on('click', () => {
+      setHoveredConnection(null);
+    });
+
     return () => {
       map.remove();
       mapRef.current = null;
@@ -85,7 +97,7 @@ export default function MapView({ activeNodes, activeEvent, onNodeClick }: MapVi
   // Update map state on event / nodes change
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !worldGeoJson) return;
+    if (!map || !worldGeoJson || !indiaGeoJson) return;
 
     // 1. Clear previous lines and capitals
     linesLayerRef.current?.clearLayers();
@@ -108,11 +120,26 @@ export default function MapView({ activeNodes, activeEvent, onNodeClick }: MapVi
     if (geoJsonLayerRef.current) {
       map.removeLayer(geoJsonLayerRef.current);
     }
+    if (indiaLayerRef.current) {
+      map.removeLayer(indiaLayerRef.current);
+    }
 
+    // Render world.json layer (with India completely transparent/invisible)
     geoJsonLayerRef.current = L.geoJSON(worldGeoJson, {
       style: (feature) => {
-        const countryName = feature?.properties?.name || '';
+        const countryName = feature?.properties?.ADMIN || feature?.properties?.name || '';
         const normalized = normalizeCountryName(countryName);
+
+        // Hide India in world.json as the custom India_Official_Boundary.geojson renders on top
+        if (normalized === 'india') {
+          return {
+            fillColor: '#090d16',
+            fillOpacity: 0,
+            color: 'transparent',
+            weight: 0,
+          };
+        }
+
         const isActive = activeActorsSet.has(normalized);
 
         return {
@@ -123,6 +150,22 @@ export default function MapView({ activeNodes, activeEvent, onNodeClick }: MapVi
         };
       }
     }).addTo(map);
+
+    // Render India_Official_Boundary.geojson layer on top (Step 4)
+    if (indiaGeoJson) {
+      const isIndiaActive = activeActorsSet.has('india');
+
+      indiaLayerRef.current = L.geoJSON(indiaGeoJson, {
+        style: () => {
+          return {
+            fillColor: isIndiaActive ? '#f97316' : '#090d16', // Orange vs dark
+            fillOpacity: isIndiaActive ? 0.35 : 0.85,
+            color: isIndiaActive ? '#ea580c' : '#1e293b', // Brighter orange border vs dark border
+            weight: isIndiaActive ? 2 : 1,
+          };
+        }
+      }).addTo(map);
+    }
 
     // If no event selected, reset map view and exit
     if (!activeEvent || activeNodes.length === 0) {
@@ -214,35 +257,40 @@ export default function MapView({ activeNodes, activeEvent, onNodeClick }: MapVi
           renderCapital(actorA);
           renderCapital(actorB);
 
-          const polyline = L.polyline([[coordsA.lat, coordsA.lng], [coordsB.lat, coordsB.lng]], {
+          // Visible line (aesthetic only, non-interactive)
+          L.polyline([[coordsA.lat, coordsA.lng], [coordsB.lat, coordsB.lng]], {
             color: '#ea580c', // Bright orange
             weight: pixelWeight,
             opacity: 0.65,
+            interactive: false,
           }).addTo(linesLayerRef.current!);
 
-          // Mouse Hover Zoom and Tooltip/Card Panel Handler
-          polyline.on('mouseover', (e: L.LeafletMouseEvent) => {
+          // Invisible hit area line (for mouse interaction - Fix 2)
+          const hitPolyline = L.polyline([[coordsA.lat, coordsA.lng], [coordsB.lat, coordsB.lng]], {
+            color: '#ea580c',
+            weight: 20,
+            opacity: 0,
+            interactive: true,
+          }).addTo(linesLayerRef.current!);
+
+          // Tooltip on hover showing node titles
+          const tooltipContent = sharedNodes.map((n: any) => `Node ${n.node_id}: ${n.title}`).join('<br/>');
+          hitPolyline.bindTooltip(tooltipContent, {
+            sticky: true,
+            className: 'bg-slate-900 text-slate-100 text-xs px-3 py-2 border border-slate-800 rounded font-sans shadow-xl'
+          });
+
+          // Show card panel on click (stopping propagation to prevent map click close)
+          hitPolyline.on('click', (e: L.LeafletMouseEvent) => {
+            L.DomEvent.stopPropagation(e);
+            hitPolyline.closeTooltip(); // Hide tooltip immediately (Fix 1)
             if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-
-            // Zoom map to bounds between the two coordinates
-            const bounds = L.latLngBounds([coordsA, coordsB]);
-            map.fitBounds(bounds, { padding: [80, 80], animate: true });
-
-            // Display card panel
             setHoveredConnection({
               entityA: actorA,
               entityB: actorB,
               nodes: sharedNodes,
               position: { x: e.containerPoint.x, y: e.containerPoint.y }
             });
-          });
-
-          polyline.on('mouseout', () => {
-            // Delay closing to let mouse move to the card panel
-            hoverTimeoutRef.current = setTimeout(() => {
-              setHoveredConnection(null);
-              map.setView([20, 0], 2);
-            }, 300);
           });
         }
       }
@@ -271,32 +319,41 @@ export default function MapView({ activeNodes, activeEvent, onNodeClick }: MapVi
           
           try {
             const latlngB = map.containerPointToLatLng([x, y]);
-            const polyline = L.polyline([[coordsA.lat, coordsA.lng], [latlngB.lat, latlngB.lng]], {
+            // Visible line (aesthetic only, non-interactive)
+            L.polyline([[coordsA.lat, coordsA.lng], [latlngB.lat, latlngB.lng]], {
               color: '#ffffff', // White connection lines for non-state actors
               weight: 1.5 + (sharedNodes.length - 1) * 1.5,
               opacity: 0.5,
               dashArray: '5, 5', // Dashed line to represent non-state overlay connection
+              interactive: false,
             }).addTo(linesLayerRef.current!);
 
-            polyline.on('mouseover', (e: L.LeafletMouseEvent) => {
-              if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-              
-              // Center map on capital coordinates
-              map.setView([coordsA.lat, coordsA.lng], 3, { animate: true });
+            // Invisible hit area line (for mouse interaction - Fix 2)
+            const hitPolyline = L.polyline([[coordsA.lat, coordsA.lng], [latlngB.lat, latlngB.lng]], {
+              color: '#ffffff',
+              weight: 20,
+              opacity: 0,
+              interactive: true,
+            }).addTo(linesLayerRef.current!);
 
+            // Tooltip on hover showing node titles
+            const tooltipContent = sharedNodes.map((n: any) => `Node ${n.node_id}: ${n.title}`).join('<br/>');
+            hitPolyline.bindTooltip(tooltipContent, {
+              sticky: true,
+              className: 'bg-slate-900 text-slate-100 text-xs px-3 py-2 border border-slate-800 rounded font-sans shadow-xl'
+            });
+
+            // Show card panel on click (stopping propagation to prevent map click close)
+            hitPolyline.on('click', (e: L.LeafletMouseEvent) => {
+              L.DomEvent.stopPropagation(e);
+              hitPolyline.closeTooltip(); // Hide tooltip immediately (Fix 1)
+              if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
               setHoveredConnection({
                 entityA: actorA,
                 entityB: sharedNodes[0].title, // Show non-state actor info
                 nodes: sharedNodes,
                 position: { x: e.containerPoint.x - 120, y: e.containerPoint.y }
               });
-            });
-
-            polyline.on('mouseout', () => {
-              hoverTimeoutRef.current = setTimeout(() => {
-                setHoveredConnection(null);
-                map.setView([20, 0], 2);
-              }, 300);
             });
           } catch (err) {
             // containerPointToLatLng could fail if coordinates are out of bounds/loading
@@ -316,7 +373,7 @@ export default function MapView({ activeNodes, activeEvent, onNodeClick }: MapVi
       window.removeEventListener('resize', handleNonStateLines);
       if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     };
-  }, [worldGeoJson, activeNodes, activeEvent]);
+  }, [worldGeoJson, indiaGeoJson, activeNodes, activeEvent]);
 
   return (
     <div className="relative w-full h-full">
@@ -336,7 +393,6 @@ export default function MapView({ activeNodes, activeEvent, onNodeClick }: MapVi
           onMouseLeave={() => {
             hoverTimeoutRef.current = setTimeout(() => {
               setHoveredConnection(null);
-              mapRef.current?.setView([20, 0], 2);
             }, 300);
           }}
         >
