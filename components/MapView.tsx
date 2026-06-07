@@ -64,7 +64,7 @@ export default function MapView({ activeNodes, activeEvent, onNodeClick }: MapVi
       zoom: 2,
       minZoom: 2,
       maxZoom: 6,
-      zoomControl: true, // Enable zoom controls (+/-)
+      zoomControl: false, // Hide Leaflet +/- buttons (Point 1 change 4)
       dragging: true,
       scrollWheelZoom: true,
       doubleClickZoom: true,

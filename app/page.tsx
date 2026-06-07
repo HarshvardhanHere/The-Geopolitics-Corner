@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import MapWrapper from '@/components/MapWrapper';
+import NodeWrapper from '@/components/NodeWrapper';
 import NodeDetailModal from '@/components/NodeDetailModal';
 
 interface EventData {
@@ -34,6 +36,7 @@ interface ConnectionData {
 }
 
 export default function LandingPage() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
 
   // Global datasets
@@ -44,9 +47,10 @@ export default function LandingPage() {
 
   // Selection states
   const [selectedEvent, setSelectedEvent] = useState<EventData | null>(null);
+  // Fix 2 (Point 2): viewMode is stable state — only changes via explicit toggle clicks
   const [viewMode, setViewMode] = useState<'map' | 'node'>('map');
   const [timelineFilter, setTimelineFilter] = useState<'ALL' | 'Q1' | 'Q2' | 'Q3' | 'Q4'>('ALL');
-  
+
   // Detail Modal state
   const [activeDetailNode, setActiveDetailNode] = useState<NodeData | null>(null);
 
@@ -54,6 +58,12 @@ export default function LandingPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // Admin password modal state (Point 1 change 6)
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminAuthError, setAdminAuthError] = useState('');
+  const [adminAuthLoading, setAdminAuthLoading] = useState(false);
 
   // Fetch all public data on load
   useEffect(() => {
@@ -99,7 +109,6 @@ export default function LandingPage() {
     const delta = maxTime - minTime;
 
     if (delta <= 0) {
-      // Single date case
       return [
         { start: minTime, end: minTime },
         { start: minTime, end: minTime },
@@ -151,13 +160,12 @@ export default function LandingPage() {
   const handleSearchEventClick = (event: EventData) => {
     setSelectedEvent(event);
     setTimelineFilter('ALL');
-    setViewMode('map');
+    // Fix 2: Do NOT change viewMode here
     setSearchQuery('');
     setShowSearchDropdown(false);
   };
 
   const handleSearchNodeClick = (node: NodeData) => {
-    // 1. Locate parent event for the clicked node
     const mapping = mappings.find((m) => m.node_id === node.node_id);
     if (mapping) {
       const parentEvent = events.find((e) => e.event_id === mapping.event_id);
@@ -165,7 +173,6 @@ export default function LandingPage() {
         setSelectedEvent(parentEvent);
       }
     }
-    // 2. Open detail modal
     setActiveDetailNode(node);
     setSearchQuery('');
     setShowSearchDropdown(false);
@@ -174,7 +181,6 @@ export default function LandingPage() {
   const navigateToNodeId = (nodeId: number) => {
     const targetNode = nodes.find(n => n.node_id === nodeId);
     if (targetNode) {
-      // Find and load parent event
       const mapping = mappings.find(m => m.node_id === nodeId);
       if (mapping) {
         const parentEvent = events.find(e => e.event_id === mapping.event_id);
@@ -186,6 +192,38 @@ export default function LandingPage() {
     }
   };
 
+  // Admin modal: authenticate then redirect to /admin (full edit)
+  const handleAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdminAuthError('');
+    setAdminAuthLoading(true);
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: adminPassword }),
+      });
+      if (res.ok) {
+        setShowAdminModal(false);
+        setAdminPassword('');
+        router.push('/admin');
+      } else {
+        const data = await res.json();
+        setAdminAuthError(data.error || 'Incorrect password');
+      }
+    } catch {
+      setAdminAuthError('Network error. Please try again.');
+    } finally {
+      setAdminAuthLoading(false);
+    }
+  };
+
+  const openAdminModal = () => {
+    setAdminPassword('');
+    setAdminAuthError('');
+    setShowAdminModal(true);
+  };
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#070913] text-slate-100 font-sans">
       {/* 1. Left Sidebar: Macro Events list */}
@@ -195,25 +233,113 @@ export default function LandingPage() {
           <div className="p-5 border-b border-slate-900 flex justify-between items-center bg-[#090d16]">
             <div>
               <h1 className="text-sm font-bold text-slate-100 tracking-wider font-mono">
-                GEOPNODES GRAPH
+                The Geopolitics Corner
               </h1>
               <p className="text-[10px] text-orange-500 font-mono mt-0.5 uppercase tracking-widest">
                 Manually Curated Events
               </p>
             </div>
-            <a
-              href="/admin"
-              className="w-8 h-8 rounded-full border border-slate-800 hover:border-orange-500/50 bg-[#111827] flex items-center justify-center hover:scale-105 transition-all text-slate-400 hover:text-orange-500"
+            {/* Admin icon — always shows password prompt (Point 1 change 6) */}
+            <button
+              onClick={openAdminModal}
+              className="w-8 h-8 rounded-full border border-slate-800 hover:border-orange-500/50 bg-[#111827] flex items-center justify-center hover:scale-105 transition-all text-slate-400 hover:text-orange-500 cursor-pointer"
               title="Curator Portal"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4.5 h-4.5">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
               </svg>
-            </a>
+            </button>
+          </div>
+
+          {/* Search bar — moved into sidebar (Point 1 change 3) */}
+          <div ref={searchContainerRef} className="px-4 pt-4 pb-2 relative">
+            <div className="bg-[#0f1422]/90 border border-slate-800 rounded-lg flex items-center px-3 py-2 shadow-inner focus-within:border-orange-500/50 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-slate-400 mr-2.5 flex-shrink-0">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.602 10.602Z" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search events, nodes..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setShowSearchDropdown(true);
+                }}
+                onFocus={() => setShowSearchDropdown(true)}
+                className="bg-transparent border-none text-slate-100 text-xs w-full focus:outline-none placeholder-slate-500"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="text-slate-400 hover:text-slate-100 text-xs cursor-pointer px-1 font-bold flex-shrink-0"
+                >
+                  &times;
+                </button>
+              )}
+            </div>
+
+            {/* Search Dropdown */}
+            {showSearchDropdown && searchQuery && (
+              <div className="absolute left-4 right-4 top-[calc(100%-4px)] bg-[#0f1422]/98 border border-slate-800 rounded-lg shadow-2xl overflow-y-auto max-h-80 z-50 p-3 flex flex-col gap-4">
+                {/* Event Results */}
+                <div>
+                  <h4 className="text-[10px] font-bold text-indigo-400 font-mono tracking-wider mb-2">
+                    MACRO EVENTS ({filteredEventsResult.length})
+                  </h4>
+                  {filteredEventsResult.length === 0 ? (
+                    <p className="text-[11px] text-slate-500 italic px-2">No matching events.</p>
+                  ) : (
+                    <div className="flex flex-col gap-1.5">
+                      {filteredEventsResult.map((e) => (
+                        <button
+                          key={e.event_id}
+                          onClick={() => handleSearchEventClick(e)}
+                          className="w-full text-left hover:bg-slate-800/60 p-2 rounded text-xs transition-colors cursor-pointer"
+                        >
+                          <span className="text-orange-500 font-mono text-[9px] font-bold block">
+                            {e.event_id}
+                          </span>
+                          <span className="text-slate-200 font-semibold truncate block">
+                            {e.title}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Node Results */}
+                <div>
+                  <h4 className="text-[10px] font-bold text-indigo-400 font-mono tracking-wider mb-2">
+                    INDIVIDUAL NODES ({filteredNodesResult.length})
+                  </h4>
+                  {filteredNodesResult.length === 0 ? (
+                    <p className="text-[11px] text-slate-500 italic px-2">No matching node titles.</p>
+                  ) : (
+                    <div className="flex flex-col gap-1.5">
+                      {filteredNodesResult.map((n) => (
+                        <button
+                          key={n.node_id}
+                          onClick={() => handleSearchNodeClick(n)}
+                          className="w-full text-left hover:bg-slate-800/60 p-2 rounded text-xs transition-colors cursor-pointer"
+                        >
+                          <span className="text-indigo-400 font-mono text-[9px] font-bold block">
+                            Node {n.node_id}
+                          </span>
+                          <span className="text-slate-200 font-semibold truncate block">
+                            {n.title}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Events Scroll Container */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="flex-1 overflow-y-auto p-4 pt-2 space-y-2">
             <h3 className="text-[10px] font-bold text-slate-400 font-mono tracking-wider mb-2">
               MACRO EVENTS TIMELINE
             </h3>
@@ -230,41 +356,23 @@ export default function LandingPage() {
                   <button
                     key={event.event_id}
                     onClick={() => {
+                      // Fix 2 (Point 2): Do NOT change viewMode — only update selected event
                       setSelectedEvent(event);
                       setTimelineFilter('ALL');
-                      setViewMode('map');
                     }}
-                    className={`w-full text-left p-3.5 border rounded-lg transition-all cursor-pointer flex flex-col gap-1.5 ${
+                    className={`w-full text-left p-3 border rounded-lg transition-all cursor-pointer flex flex-col gap-1 ${
                       isActive
                         ? 'bg-[#1c1615] border-orange-600/80 shadow-lg shadow-orange-950/20'
                         : 'bg-slate-900/40 border-slate-900 hover:border-slate-800 hover:bg-slate-900/60'
                     }`}
                   >
-                    <div className="flex justify-between items-center">
-                      <span className={`text-[10px] font-mono font-bold tracking-wider ${
-                        isActive ? 'text-orange-500' : 'text-slate-400'
-                      }`}>
-                        {event.event_id}
-                      </span>
-                      <span className="text-[9px] text-slate-500 font-mono">
-                        {event.start_date}
-                      </span>
-                    </div>
+                    {/* Simplified: only title and node count (Point 1 change 2) */}
                     <div className={`text-xs font-bold leading-normal ${
                       isActive ? 'text-slate-100' : 'text-slate-300'
                     }`}>
                       {event.title}
                     </div>
-                    {event.tags && event.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {event.tags.map((t, idx) => (
-                          <span key={idx} className="bg-slate-900 text-slate-400 border border-slate-800 rounded px-1.5 py-0.5 text-[9px] font-semibold font-mono">
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div className="text-[10px] text-slate-500 font-mono mt-1 font-semibold">
+                    <div className="text-[10px] text-slate-500 font-mono font-semibold">
                       {event.nodeCount} {event.nodeCount === 1 ? 'node' : 'nodes'}
                     </div>
                   </button>
@@ -273,99 +381,25 @@ export default function LandingPage() {
             )}
           </div>
         </div>
+
+        {/* Visit Admin Panel button (Point 1 change 5) */}
+        <div className="p-4 border-t border-slate-900 bg-[#090d16]">
+          <a
+            href="/admin?view=true"
+            className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-lg border border-slate-700 bg-slate-900/60 hover:bg-slate-800 hover:border-slate-600 text-slate-300 hover:text-slate-100 text-xs font-semibold transition-all"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
+            </svg>
+            Visit Admin Panel
+          </a>
+        </div>
       </aside>
 
-      {/* 2. Main Workspace: Map / Search / Viewport Overlay */}
+      {/* 2. Main Workspace: Map / Viewport Overlay */}
       <main className="flex-1 relative flex flex-col h-full bg-[#070913] select-none">
-        
-        {/* Global Search Experience (Google-style, top-left overlay) */}
-        <div ref={searchContainerRef} className="absolute left-4 top-4 w-80 z-[1001]">
-          <div className="bg-[#0f1422]/90 backdrop-blur-md border border-slate-800 rounded-lg flex items-center px-3 py-2 shadow-2xl focus-within:border-orange-500/50 transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-slate-400 mr-2.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.602 10.602Z" />
-            </svg>
-            <input
-              type="text"
-              placeholder="Search events, node titles..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setShowSearchDropdown(true);
-              }}
-              onFocus={() => setShowSearchDropdown(true)}
-              className="bg-transparent border-none text-slate-100 text-xs w-full focus:outline-none placeholder-slate-400"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="text-slate-400 hover:text-slate-100 text-xs cursor-pointer px-1 font-bold"
-              >
-                &times;
-              </button>
-            )}
-          </div>
 
-          {/* Search Dropdown Panel (Requirement Section 4.7) */}
-          {showSearchDropdown && searchQuery && (
-            <div className="absolute left-0 right-0 top-11 bg-[#0f1422]/95 backdrop-blur-md border border-slate-800 rounded-lg shadow-2xl overflow-y-auto max-h-96 z-50 p-3 flex flex-col gap-4">
-              {/* Event Results Tier */}
-              <div>
-                <h4 className="text-[10px] font-bold text-indigo-400 font-mono tracking-wider mb-2">
-                  MACRO EVENTS ({filteredEventsResult.length})
-                </h4>
-                {filteredEventsResult.length === 0 ? (
-                  <p className="text-[11px] text-slate-500 italic px-2">No matching events.</p>
-                ) : (
-                  <div className="flex flex-col gap-1.5">
-                    {filteredEventsResult.map((e) => (
-                      <button
-                        key={e.event_id}
-                        onClick={() => handleSearchEventClick(e)}
-                        className="w-full text-left hover:bg-slate-800/60 p-2 rounded text-xs transition-colors cursor-pointer group"
-                      >
-                        <span className="text-orange-500 font-mono text-[9px] font-bold block">
-                          {e.event_id}
-                        </span>
-                        <span className="text-slate-200 font-semibold truncate block">
-                          {e.title}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Node Results Tier */}
-              <div>
-                <h4 className="text-[10px] font-bold text-indigo-400 font-mono tracking-wider mb-2">
-                  INDIVIDUAL NODES ({filteredNodesResult.length})
-                </h4>
-                {filteredNodesResult.length === 0 ? (
-                  <p className="text-[11px] text-slate-500 italic px-2">No matching node titles.</p>
-                ) : (
-                  <div className="flex flex-col gap-1.5">
-                    {filteredNodesResult.map((n) => (
-                      <button
-                        key={n.node_id}
-                        onClick={() => handleSearchNodeClick(n)}
-                        className="w-full text-left hover:bg-slate-800/60 p-2 rounded text-xs transition-colors cursor-pointer group"
-                      >
-                        <span className="text-indigo-400 font-mono text-[9px] font-bold block">
-                          Node {n.node_id}
-                        </span>
-                        <span className="text-slate-200 font-semibold truncate block">
-                          {n.title}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* View Mode Toggle button (Only active when Macro Event is selected) */}
+        {/* View Mode Toggle (Only active when Macro Event is selected) */}
         {selectedEvent && (
           <div className="absolute right-4 top-4 z-[1001]">
             <div className="bg-[#0f1422]/90 backdrop-blur-md border border-slate-800 rounded-lg p-1.5 flex gap-1 shadow-2xl">
@@ -402,18 +436,12 @@ export default function LandingPage() {
               onNodeClick={setActiveDetailNode}
             />
           ) : (
-            /* Stub Node View component for Milestone 2 */
-            <div className="flex items-center justify-center w-full h-full bg-[#070913] text-slate-400 font-mono text-xs border border-slate-900 select-none">
-              <div className="text-center p-8 bg-[#0f1422] border border-slate-800 rounded-lg max-w-sm shadow-2xl">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-8 h-8 mx-auto text-orange-500/80 mb-4 animate-pulse">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.005 9.005 0 0 0-12 0M12 4.5v15m0-15a9 9 0 0 1 9 9m-9-9a9 9 0 0 0-9 9" />
-                </svg>
-                <h4 className="text-slate-200 font-bold mb-1">Node View Physics Simulation</h4>
-                <p className="text-[10px] text-slate-500 leading-normal uppercase tracking-wider font-bold">
-                  Locked / / Available in Milestone 3
-                </p>
-              </div>
-            </div>
+            <NodeWrapper
+              activeNodes={filteredActiveNodes}
+              activeEvent={selectedEvent}
+              connections={connections}
+              onNodeClick={setActiveDetailNode}
+            />
           )}
 
           {/* 4. Non-State Actor Right-Side panel (Map View Overlay, Section 4.2) */}
@@ -463,8 +491,7 @@ export default function LandingPage() {
                   const isActive = timelineFilter === q;
                   const idx = parseInt(q.replace('Q', '')) - 1;
                   const bound = quarters ? quarters[idx] : null;
-                  
-                  // Label date strings
+
                   const dateStr = bound
                     ? `${new Date(bound.start).toLocaleDateString([], { month: 'short', day: 'numeric' })} - ${new Date(bound.end).toLocaleDateString([], { month: 'short', day: 'numeric' })}`
                     : '';
@@ -501,6 +528,49 @@ export default function LandingPage() {
           onClose={() => setActiveDetailNode(null)}
           onNavigateToNode={navigateToNodeId}
         />
+      )}
+
+      {/* 7. Curator Password Modal (Point 1 change 6 — always shown on admin icon click) */}
+      {showAdminModal && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
+          <div className="bg-[#0f1422] border border-slate-800 rounded-xl shadow-2xl w-full max-w-sm p-6 relative">
+            {/* Close */}
+            <button
+              onClick={() => { setShowAdminModal(false); setAdminPassword(''); setAdminAuthError(''); }}
+              className="absolute top-4 right-4 text-slate-500 hover:text-slate-200 transition-colors cursor-pointer text-lg leading-none"
+            >
+              &times;
+            </button>
+
+            <h2 className="text-base font-bold text-slate-100 mb-1 tracking-wide">Curator Access</h2>
+            <p className="text-xs text-slate-400 mb-5">Enter the curator security key to access full edit mode.</p>
+
+            <form onSubmit={handleAdminLogin} className="flex flex-col gap-4">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1.5">Security Key</label>
+                <input
+                  type="password"
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  autoFocus
+                  className="w-full bg-[#172033] border border-slate-700 rounded-lg px-3 py-2.5 text-slate-100 text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                  placeholder="Enter password..."
+                  required
+                />
+              </div>
+              {adminAuthError && (
+                <p className="text-red-400 text-xs font-mono -mt-2">{adminAuthError}</p>
+              )}
+              <button
+                type="submit"
+                disabled={adminAuthLoading}
+                className="w-full bg-orange-600 hover:bg-orange-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg py-2.5 font-semibold text-sm transition-all cursor-pointer disabled:cursor-not-allowed"
+              >
+                {adminAuthLoading ? 'Authenticating…' : 'Authenticate & Enter'}
+              </button>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
