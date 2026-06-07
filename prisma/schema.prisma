@@ -1,0 +1,54 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Event {
+  event_id   String             @id @db.VarChar(50)
+  title      String             @db.VarChar(255)
+  start_date DateTime           @db.Date
+  actors     String[]
+  tags       String[]
+  nodes      EventNodeMapping[]
+
+  @@map("events")
+}
+
+model Node {
+  node_id        Int                @id
+  title          String             @db.VarChar(255)
+  date           DateTime           @db.Date
+  actors         String[]
+  parent_country String?            @db.VarChar(100)
+  tags           String[]
+  remarks        String?            @db.Text
+  events         EventNodeMapping[]
+  connectionsA   NodeConnection[]   @relation("NodeA")
+  connectionsB   NodeConnection[]   @relation("NodeB")
+
+  @@map("nodes")
+}
+
+model EventNodeMapping {
+  event_id String @db.VarChar(50)
+  node_id  Int
+  event    Event  @relation(fields: [event_id], references: [event_id], onDelete: Cascade)
+  node     Node   @relation(fields: [node_id], references: [node_id], onDelete: Cascade)
+
+  @@id([event_id, node_id])
+  @@map("event_node_mapping")
+}
+
+model NodeConnection {
+  connection_id String @id @db.VarChar(50)
+  node_a        Int
+  node_b        Int
+  nodeA         Node   @relation("NodeA", fields: [node_a], references: [node_id], onDelete: Cascade)
+  nodeB         Node   @relation("NodeB", fields: [node_b], references: [node_id], onDelete: Cascade)
+
+  @@map("node_connections")
+}
