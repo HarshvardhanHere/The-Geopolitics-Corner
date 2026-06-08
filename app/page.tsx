@@ -260,7 +260,7 @@ export default function LandingPage() {
                 The Geopolitics Corner
               </h1>
               <p className="text-[10px] text-orange-500 font-mono mt-0.5 uppercase tracking-widest">
-                Manually Curated Events
+                by Harshvardhan Gaikwad
               </p>
             </div>
             {/* Admin icon — always shows password prompt (Point 1 change 6) */}
