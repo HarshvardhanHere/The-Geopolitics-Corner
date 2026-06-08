@@ -65,6 +65,20 @@ export default function LandingPage() {
   const [adminAuthError, setAdminAuthError] = useState('');
   const [adminAuthLoading, setAdminAuthLoading] = useState(false);
 
+  // Welcome modal state
+  const [showWelcome, setShowWelcome] = useState(false);
+
+  useEffect(() => {
+    if (sessionStorage.getItem('tgc_welcome_dismissed') !== 'true') {
+      setShowWelcome(true);
+    }
+  }, []);
+
+  const dismissWelcome = () => {
+    setShowWelcome(false);
+    sessionStorage.setItem('tgc_welcome_dismissed', 'true');
+  };
+
   // Fetch all public data on load
   useEffect(() => {
     fetch('/api/public/data')
@@ -401,7 +415,7 @@ export default function LandingPage() {
           </div>
         </div>
 
-        {/* Visit Admin Panel button (Point 1 change 5) */}
+        {/* Visit Repository button */}
         <div className="p-4 border-t border-slate-900 bg-[#090d16]">
           <a
             href="/admin?view=true"
@@ -410,7 +424,7 @@ export default function LandingPage() {
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
               <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
             </svg>
-            Visit Admin Panel
+            Visit Repository
           </a>
         </div>
       </aside>
@@ -418,33 +432,31 @@ export default function LandingPage() {
       {/* 2. Main Workspace: Map / Viewport Overlay */}
       <main className="flex-1 relative flex flex-col h-full bg-[#070913] select-none">
 
-        {/* View Mode Toggle (Only active when Macro Event is selected) */}
-        {selectedEvent && (
-          <div className="absolute right-4 top-4 z-[1001]">
-            <div className="bg-[#0f1422]/90 backdrop-blur-md border border-slate-800 rounded-lg p-1.5 flex gap-1 shadow-2xl">
-              <button
-                onClick={() => setViewMode('map')}
-                className={`text-[10px] font-bold px-3 py-1.5 rounded transition-all cursor-pointer ${
-                  viewMode === 'map'
-                    ? 'bg-orange-600 text-white shadow shadow-orange-950/20'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Map View
-              </button>
-              <button
-                onClick={() => setViewMode('node')}
-                className={`text-[10px] font-bold px-3 py-1.5 rounded transition-all cursor-pointer ${
-                  viewMode === 'node'
-                    ? 'bg-orange-600 text-white shadow shadow-orange-950/20'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Node View
-              </button>
-            </div>
+        {/* View Mode Toggle (always visible) */}
+        <div className="absolute right-4 top-4 z-[1001]">
+          <div className="bg-[#0f1422]/90 backdrop-blur-md border border-slate-800 rounded-lg p-1.5 flex gap-1 shadow-2xl">
+            <button
+              onClick={() => setViewMode('map')}
+              className={`text-[10px] font-bold px-3 py-1.5 rounded transition-all cursor-pointer ${
+                viewMode === 'map'
+                  ? 'bg-orange-600 text-white shadow shadow-orange-950/20'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Map View
+            </button>
+            <button
+              onClick={() => setViewMode('node')}
+              className={`text-[10px] font-bold px-3 py-1.5 rounded transition-all cursor-pointer ${
+                viewMode === 'node'
+                  ? 'bg-orange-600 text-white shadow shadow-orange-950/20'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Node View
+            </button>
           </div>
-        )}
+        </div>
 
         {/* 3. Render Views */}
         <div className="flex-1 w-full h-full relative">
@@ -486,7 +498,18 @@ export default function LandingPage() {
           )}
         </div>
 
-        {/* 5. Timeline bar component (Bottom overlay, Section 4.6) */}
+        {/* 5. Helper card — context-sensitive, bottom-right, always visible */}
+        <div className="absolute bottom-20 right-4 z-[1000] max-w-[220px] pointer-events-none select-none">
+          <div className="bg-[#0c101d]/60 backdrop-blur-sm border border-slate-800/50 rounded-lg px-3 py-2.5 shadow-lg">
+            <p className="text-[10px] text-slate-500 leading-relaxed">
+              {viewMode === 'map'
+                ? 'Select an event from the left panel to illuminate the countries involved. Click any connection line between two countries to see the nodes linking them. Click a node card to read the full details.'
+                : 'Select an event from the left panel to see all involved countries rendered as a clustered network. Each circle is a node. Click any node to read its full details.'}
+            </p>
+          </div>
+        </div>
+
+        {/* 6. Timeline bar component (Bottom overlay, Section 4.6) */}
         {selectedEvent && activeEventNodes.length > 0 && (
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1001] w-full max-w-xl px-4 animate-slide-up">
             <div className="bg-[#0f1422]/90 backdrop-blur-md border border-slate-800 rounded-lg p-2.5 flex items-center gap-3 shadow-2xl">
@@ -588,6 +611,38 @@ export default function LandingPage() {
                 {adminAuthLoading ? 'Authenticating…' : 'Authenticate & Enter'}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 9. Welcome Modal (first visit only, sessionStorage persisted) */}
+      {showWelcome && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[3000] flex items-center justify-center p-4">
+          <div className="bg-[#0f1422] border border-slate-800 rounded-xl shadow-2xl w-full max-w-lg p-7 relative">
+            <h2 className="text-lg font-bold text-slate-100 mb-4 tracking-wide">Welcome to The Geopolitics Corner</h2>
+            <div className="text-xs text-slate-300 leading-relaxed space-y-3 mb-6">
+              <p>
+                This platform maps real-world geopolitical developments as an interactive visual knowledge graph. Every event, connection, and insight here is independently researched and manually curated — no AI fuss.
+              </p>
+              <p>
+                <strong className="text-orange-400">Map View</strong> — Every geopolitical event involves multiple nations, often in ways that are not immediately obvious. This view illuminates the countries involved and draws the connections between them directly on a world map, making both explicit and implicit relationships visible at a glance.
+              </p>
+              <p>
+                <strong className="text-orange-400">Node View</strong> — Nothing in geopolitics happens in isolation. This view renders the same events as a living web of interconnected nodes, revealing how individual developments shape and influence the broader course of global affairs.
+              </p>
+              <p>
+                <strong className="text-orange-400">Repository</strong> — Browse the complete underlying database of events, nodes, and connections that power this platform.
+              </p>
+              <p className="text-slate-400 italic">
+                Select any event from the left panel to begin.
+              </p>
+            </div>
+            <button
+              onClick={dismissWelcome}
+              className="w-full bg-orange-600 hover:bg-orange-500 text-white rounded-lg py-2.5 font-semibold text-sm transition-all cursor-pointer"
+            >
+              OK
+            </button>
           </div>
         </div>
       )}

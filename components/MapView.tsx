@@ -258,14 +258,14 @@ export default function MapView({ activeNodes, activeEvent, onNodeClick }: MapVi
           renderCapital(actorB);
 
           // Visible line (aesthetic only, non-interactive)
-          L.polyline([[coordsA.lat, coordsA.lng], [coordsB.lat, coordsB.lng]], {
+          const visibleLine = L.polyline([[coordsA.lat, coordsA.lng], [coordsB.lat, coordsB.lng]], {
             color: '#ea580c', // Bright orange
             weight: pixelWeight,
             opacity: 0.65,
             interactive: false,
           }).addTo(linesLayerRef.current!);
 
-          // Invisible hit area line (for mouse interaction - Fix 2)
+          // Invisible hit area line (for mouse interaction)
           const hitPolyline = L.polyline([[coordsA.lat, coordsA.lng], [coordsB.lat, coordsB.lng]], {
             color: '#ea580c',
             weight: 20,
@@ -273,17 +273,19 @@ export default function MapView({ activeNodes, activeEvent, onNodeClick }: MapVi
             interactive: true,
           }).addTo(linesLayerRef.current!);
 
-          // Tooltip on hover showing node titles
-          const tooltipContent = sharedNodes.map((n: any) => `Node ${n.node_id}: ${n.title}`).join('<br/>');
-          hitPolyline.bindTooltip(tooltipContent, {
-            sticky: true,
-            className: 'bg-slate-900 text-slate-100 text-xs px-3 py-2 border border-slate-800 rounded font-sans shadow-xl'
+          // Hover visual cue: brighten and thicken the visible line
+          hitPolyline.on('mouseover', () => {
+            visibleLine.setStyle({ opacity: 1.0, weight: pixelWeight + 2 });
+            const el = hitPolyline.getElement();
+            if (el) (el as HTMLElement).style.cursor = 'pointer';
+          });
+          hitPolyline.on('mouseout', () => {
+            visibleLine.setStyle({ opacity: 0.65, weight: pixelWeight });
           });
 
           // Show card panel on click (stopping propagation to prevent map click close)
           hitPolyline.on('click', (e: L.LeafletMouseEvent) => {
             L.DomEvent.stopPropagation(e);
-            hitPolyline.closeTooltip(); // Hide tooltip immediately (Fix 1)
             if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
             setHoveredConnection({
               entityA: actorA,
@@ -319,16 +321,17 @@ export default function MapView({ activeNodes, activeEvent, onNodeClick }: MapVi
           
           try {
             const latlngB = map.containerPointToLatLng([x, y]);
+            const nsWeight = 1.5 + (sharedNodes.length - 1) * 1.5;
             // Visible line (aesthetic only, non-interactive)
-            L.polyline([[coordsA.lat, coordsA.lng], [latlngB.lat, latlngB.lng]], {
+            const visibleLine = L.polyline([[coordsA.lat, coordsA.lng], [latlngB.lat, latlngB.lng]], {
               color: '#ffffff', // White connection lines for non-state actors
-              weight: 1.5 + (sharedNodes.length - 1) * 1.5,
+              weight: nsWeight,
               opacity: 0.5,
               dashArray: '5, 5', // Dashed line to represent non-state overlay connection
               interactive: false,
             }).addTo(linesLayerRef.current!);
 
-            // Invisible hit area line (for mouse interaction - Fix 2)
+            // Invisible hit area line (for mouse interaction)
             const hitPolyline = L.polyline([[coordsA.lat, coordsA.lng], [latlngB.lat, latlngB.lng]], {
               color: '#ffffff',
               weight: 20,
@@ -336,17 +339,19 @@ export default function MapView({ activeNodes, activeEvent, onNodeClick }: MapVi
               interactive: true,
             }).addTo(linesLayerRef.current!);
 
-            // Tooltip on hover showing node titles
-            const tooltipContent = sharedNodes.map((n: any) => `Node ${n.node_id}: ${n.title}`).join('<br/>');
-            hitPolyline.bindTooltip(tooltipContent, {
-              sticky: true,
-              className: 'bg-slate-900 text-slate-100 text-xs px-3 py-2 border border-slate-800 rounded font-sans shadow-xl'
+            // Hover visual cue: brighten and thicken the visible line
+            hitPolyline.on('mouseover', () => {
+              visibleLine.setStyle({ opacity: 1.0, weight: nsWeight + 2 });
+              const el = hitPolyline.getElement();
+              if (el) (el as HTMLElement).style.cursor = 'pointer';
+            });
+            hitPolyline.on('mouseout', () => {
+              visibleLine.setStyle({ opacity: 0.5, weight: nsWeight });
             });
 
             // Show card panel on click (stopping propagation to prevent map click close)
             hitPolyline.on('click', (e: L.LeafletMouseEvent) => {
               L.DomEvent.stopPropagation(e);
-              hitPolyline.closeTooltip(); // Hide tooltip immediately (Fix 1)
               if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
               setHoveredConnection({
                 entityA: actorA,
