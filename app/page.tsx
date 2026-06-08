@@ -383,7 +383,7 @@ export default function LandingPage() {
             ) : events.length === 0 ? (
               <p className="text-xs text-slate-500 italic py-10 text-center">No Macro Events recorded.</p>
             ) : (
-              events.map((event) => {
+              [...events].sort((a, b) => (b.nodeCount || 0) - (a.nodeCount || 0)).map((event) => {
                 const isActive = selectedEvent?.event_id === event.event_id;
                 return (
                   <button
