@@ -13,6 +13,7 @@ model Event {
   start_date DateTime           @db.Date
   actors     String[]
   tags       String[]
+  remarks    String?            @db.Text
   nodes      EventNodeMapping[]
 
   @@map("events")

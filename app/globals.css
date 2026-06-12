@@ -25,6 +25,11 @@ body {
   color: #fca5a5 !important;
 }
 
+.staged-row {
+  background-color: rgba(59, 130, 246, 0.2) !important;
+  color: #93c5fd !important;
+}
+
 /* Leaflet Tooltip Premium Dark Theme Styling */
 .leaflet-tooltip {
   background-color: #0f1422 !important;

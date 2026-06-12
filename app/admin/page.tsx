@@ -24,6 +24,7 @@ interface NodeData {
   tags: string[];
   remarks: string;
   parent_events?: string[];
+  isStaged?: boolean;
   hasConflict?: boolean;
   conflict_desc?: string;
 }
@@ -34,6 +35,7 @@ interface EventData {
   start_date: string;
   actors?: string[];
   tags: string[];
+  remarks?: string;
   hasConflict?: boolean;
   conflict_desc?: string;
 }
@@ -600,6 +602,84 @@ function AdminPageInner() {
     }
   };
 
+  // Handle Paste Event for Bulk Entry
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (!isEditMode || activeTab !== 'nodes') return;
+      const text = e.clipboardData?.getData('text');
+      if (!text) return;
+      
+      const rows = text.split(/\r?\n/).filter(r => r.trim() !== '');
+      if (rows.length === 0) return;
+
+      setNodes(prevNodes => {
+        const newNodes = [...prevNodes];
+        let hasChanges = false;
+
+        rows.forEach(rowStr => {
+          const cols = rowStr.split('\t');
+          if (cols.length < 2) return;
+
+          const nodeIdStr = cols[0]?.trim();
+          if (!nodeIdStr) return;
+          const node_id = parseInt(nodeIdStr, 10);
+          if (isNaN(node_id)) return;
+
+          const title = cols[1]?.trim() || '';
+          const dateStr = cols[2]?.trim();
+          let date = new Date().toISOString().split('T')[0];
+          if (dateStr) {
+             const ddmmyyyy = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+             if (ddmmyyyy) {
+               date = `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2,'0')}-${ddmmyyyy[1].padStart(2,'0')}`;
+             } else {
+               const parsed = new Date(dateStr);
+               if (!isNaN(parsed.getTime())) date = parsed.toISOString().split('T')[0];
+             }
+          }
+          
+          const actorsRaw = cols[3]?.trim();
+          const actors = actorsRaw ? actorsRaw.split(',').map(v => v.trim()).filter(Boolean) : [];
+          
+          const parent_country = cols[4]?.trim() || null;
+          
+          const parentEventsRaw = cols[5]?.trim();
+          const parent_events = parentEventsRaw ? parentEventsRaw.split(',').map(v => {
+             const m = v.trim().match(/^E(\d+)$/i);
+             return m ? `EVENT ${m[1].padStart(2, '0')}` : v.trim();
+          }).filter(v => v && v !== '—' && v !== '-') : [];
+
+          const tagsRaw = cols[6]?.trim();
+          const tags = tagsRaw ? tagsRaw.split(',').map(v => v.trim()).filter(Boolean) : [];
+
+          const remarks = cols[7]?.trim() || '';
+
+          const existingNodeIndex = newNodes.findIndex(n => n.node_id === node_id);
+          
+          const newNodeData: NodeData = {
+            node_id, title, date, actors, parent_country, parent_events, tags, remarks, isStaged: true
+          };
+
+          if (existingNodeIndex !== -1) {
+            newNodeData.hasConflict = true;
+            newNodeData.conflict_desc = "Pasted Node ID already exists";
+            newNodes[existingNodeIndex] = newNodeData;
+          } else {
+            newNodes.push(newNodeData);
+          }
+          
+          setModifiedNodes(prev => new Set(prev).add(node_id));
+          hasChanges = true;
+        });
+        
+        return hasChanges ? newNodes : prevNodes;
+      });
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [isEditMode, activeTab]);
+
   // Column definitions for AG Grid
   const checkboxCol: ColDef = {
     headerCheckboxSelection: isEditMode,
@@ -718,6 +798,7 @@ function AdminPageInner() {
         return true;
       },
     },
+    { headerName: 'Remarks', field: 'remarks', width: 200, editable: isEditMode },
     conflictDescCol,
     conflictResolutionCol('event'),
   ];
@@ -746,6 +827,7 @@ function AdminPageInner() {
   // Grid styling rules
   const gridRowClassRules = {
     'conflict-row': (params: RowClassParams) => params.data.hasConflict === true,
+    'staged-row': (params: RowClassParams) => params.data.isStaged === true && !params.data.hasConflict,
   };
 
   // --- Loading state ---

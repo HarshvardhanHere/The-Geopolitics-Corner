@@ -107,10 +107,11 @@ export async function POST(request: NextRequest) {
         const title = row['Title']?.toString().trim();
         const start_date = parseExcelDateStr(row['Date']);
         const tags = parseCommaSeparated(row['Tags']);
+        const remarks = row['Remarks']?.toString().trim() || '';
 
         if (!event_id || !title || !start_date) continue;
 
-        const excelEvent = { event_id, title, start_date, tags };
+        const excelEvent = { event_id, title, start_date, tags, remarks };
         const dbEvent = dbEventsMap.get(event_id);
 
         if (!dbEvent) {
@@ -120,6 +121,7 @@ export async function POST(request: NextRequest) {
             title,
             start_date,
             tags,
+            remarks,
           });
           addedEventsCount++;
         } else {
@@ -129,6 +131,7 @@ export async function POST(request: NextRequest) {
             title: dbEvent.title,
             start_date: dbEvent.start_date.toISOString().split('T')[0],
             tags: dbEvent.tags,
+            remarks: dbEvent.remarks || '',
           };
 
           const diffs: string[] = [];
@@ -140,6 +143,9 @@ export async function POST(request: NextRequest) {
           }
           if (!areArraysEqual(excelEvent.tags, dbEventFormatted.tags)) {
             diffs.push(`Tags differ — DB: [${dbEventFormatted.tags.join(', ')}] / Excel: [${excelEvent.tags.join(', ')}]`);
+          }
+          if (excelEvent.remarks !== dbEventFormatted.remarks) {
+            diffs.push(`Remarks differ — DB: "${dbEventFormatted.remarks}" / Excel: "${excelEvent.remarks}"`);
           }
 
           if (diffs.length > 0) {
@@ -175,7 +181,9 @@ export async function POST(request: NextRequest) {
         const parent_country = row['Parent Country']?.toString().trim() || null;
         const tags = parseCommaSeparated(row['Tags']);
         const remarks = row['Remarks']?.toString().trim() || '';
-        const parent_events = parseCommaSeparated(row['Parent Event(s)']).map(expandEventId);
+        const parent_events = parseCommaSeparated(row['Parent Event(s)'])
+          .filter((v: string) => v && v.trim() !== '—' && v.trim() !== '-' && v.trim() !== '')
+          .map(expandEventId);
 
         if (!date) continue;
 
