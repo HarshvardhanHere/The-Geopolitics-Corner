@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import * as XLSX from 'xlsx';
 import { verifySession, SESSION_COOKIE_NAME } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { CAPITALS } from '@/lib/capitals';
 
 function parseCommaSeparated(val: any): string[] {
   if (val === null || val === undefined) return [];
@@ -48,6 +49,14 @@ function areArraysEqual(a: string[], b: string[]): boolean {
   const sortedB = [...b].sort();
   return sortedA.every((val, i) => val === sortedB[i]);
 }
+
+type ValidationResult = {
+  id: string | number;
+  title?: string;
+  isNew?: boolean;
+  status: 'valid' | 'error';
+  errors: string[];
+};
 
 export async function POST(request: NextRequest) {
   const cookieStore = await cookies();
@@ -98,26 +107,85 @@ export async function POST(request: NextRequest) {
     const nodeMappingsToInsert: { node_id: number; event_id: string }[] = [];
     const connectionsToInsert: any[] = [];
 
-    // --- PROCESS EVENTS SHEET ---
+    const validationReport = {
+      events: { total: 0, validCount: 0, errorCount: 0, details: [] as ValidationResult[] },
+      nodes: { total: 0, validCount: 0, errorCount: 0, details: [] as ValidationResult[] },
+      connections: { total: 0, validCount: 0, errorCount: 0, details: [] as ValidationResult[] },
+    };
+
+    const currentUploadEventIds = new Set<string>();
+    const currentUploadNodeIds = new Set<number>();
+
+    // --- PRE-SCAN EVENTS AND NODES ---
     const eventsSheet = workbook.Sheets['Events'];
     if (eventsSheet) {
       const rows = XLSX.utils.sheet_to_json<any>(eventsSheet, { defval: null });
+      validationReport.events.total = rows.length;
       for (const row of rows) {
-        const event_id = row['Event ID']?.toString().trim();
+        if (row['Event ID']) {
+           currentUploadEventIds.add(expandEventId(row['Event ID'].toString()));
+        }
+      }
+    }
+    const nodesSheet = workbook.Sheets['Nodes'];
+    if (nodesSheet) {
+      const rows = XLSX.utils.sheet_to_json<any>(nodesSheet, { defval: null });
+      validationReport.nodes.total = rows.length;
+      for (const row of rows) {
+        const node_id_val = row['Node ID'];
+        if (node_id_val !== null && node_id_val !== undefined) {
+           const nId = parseInt(node_id_val.toString().trim(), 10);
+           if (!isNaN(nId)) currentUploadNodeIds.add(nId);
+        }
+      }
+    }
+    const connectionsSheet = workbook.Sheets['Connections'];
+    if (connectionsSheet) {
+       const rows = XLSX.utils.sheet_to_json<any>(connectionsSheet, { defval: null });
+       validationReport.connections.total = rows.length;
+    }
+
+    // --- PROCESS EVENTS SHEET ---
+    if (eventsSheet) {
+      const rows = XLSX.utils.sheet_to_json<any>(eventsSheet, { defval: null });
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const raw_event_id = row['Event ID']?.toString().trim();
+        const event_id = raw_event_id ? expandEventId(raw_event_id) : undefined;
         const title = row['Title']?.toString().trim();
         const start_date = parseExcelDateStr(row['Date']);
         const tags = parseCommaSeparated(row['Tags']);
         const remarks = row['Remarks']?.toString().trim() || '';
 
-        if (!event_id || !title || !start_date) continue;
+        const errors: string[] = [];
+        if (!event_id) errors.push('Missing Event ID');
+        if (!title) errors.push('Missing Title');
+        if (!start_date) errors.push('Missing or invalid Date');
 
-        const excelEvent = { event_id, title, start_date, tags, remarks };
-        const dbEvent = dbEventsMap.get(event_id);
+        const isNew = event_id ? !dbEventsMap.has(event_id) : false;
+
+        validationReport.events.details.push({
+          id: event_id || `Row ${i + 2}`,
+          title: title || 'Unknown Title',
+          isNew,
+          status: errors.length > 0 ? 'error' : 'valid',
+          errors,
+        });
+
+        if (errors.length > 0) {
+          validationReport.events.errorCount++;
+          continue;
+        }
+
+        validationReport.events.validCount++;
+
+        const excelEvent = { event_id: event_id!, title, start_date, tags, remarks };
+        const dbEvent = dbEventsMap.get(event_id!);
 
         if (!dbEvent) {
           // Case 1: New
           eventsToInsert.push({
-            event_id,
+            event_id: event_id!,
             title,
             start_date,
             tags,
@@ -166,26 +234,61 @@ export async function POST(request: NextRequest) {
     }
 
     // --- PROCESS NODES SHEET ---
-    const nodesSheet = workbook.Sheets['Nodes'];
     if (nodesSheet) {
       const rows = XLSX.utils.sheet_to_json<any>(nodesSheet, { defval: null });
-      for (const row of rows) {
-        const node_id_val = row['Node ID'];
-        if (node_id_val === null || node_id_val === undefined) continue;
-        const node_id = parseInt(node_id_val.toString().trim(), 10);
-        if (isNaN(node_id)) continue;
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const errors: string[] = [];
 
+        const node_id_val = row['Node ID'];
+        const node_id = node_id_val !== null && node_id_val !== undefined ? parseInt(node_id_val.toString().trim(), 10) : NaN;
+        
         const title = row['Title']?.toString().trim() || '';
         const date = parseExcelDateStr(row['Date']);
         const actors = parseCommaSeparated(row['Actors']);
         const parent_country = row['Parent Country']?.toString().trim() || null;
         const tags = parseCommaSeparated(row['Tags']);
         const remarks = row['Remarks']?.toString().trim() || '';
-        const parent_events = parseCommaSeparated(row['Parent Event(s)'])
+        
+        const raw_parent_events = row['Parent Event(s)']?.toString().trim() || '';
+        
+        if (isNaN(node_id)) errors.push('Missing or invalid Node ID');
+        if (!title) errors.push('Missing Title');
+        if (!date) errors.push('Missing or invalid Date');
+
+        if (!raw_parent_events || raw_parent_events === '—' || raw_parent_events === '-') {
+           errors.push('Blank or invalid Parent Event(s) field ("—")');
+        }
+
+        const parent_events = parseCommaSeparated(raw_parent_events)
           .filter((v: string) => v && v.trim() !== '—' && v.trim() !== '-' && v.trim() !== '')
           .map(expandEventId);
 
-        if (!date) continue;
+        // Check if Parent Events exist
+        for (const pe of parent_events) {
+           if (!dbEventsMap.has(pe) && !currentUploadEventIds.has(pe)) {
+              errors.push(`Parent Event "${pe}" does not exist in DB or current upload`);
+           }
+        }
+
+        // Check if parent country is in capitals
+        if (parent_country && !CAPITALS[parent_country]) {
+           errors.push(`Parent Country "${parent_country}" is missing from capitals lookup`);
+        }
+
+        validationReport.nodes.details.push({
+           id: isNaN(node_id) ? `Row ${i + 2}` : node_id,
+           title: title || 'Unknown Title',
+           status: errors.length > 0 ? 'error' : 'valid',
+           errors,
+        });
+
+        if (errors.length > 0) {
+           validationReport.nodes.errorCount++;
+           continue;
+        }
+
+        validationReport.nodes.validCount++;
 
         const excelNode = {
           node_id,
@@ -270,19 +373,46 @@ export async function POST(request: NextRequest) {
     }
 
     // --- PROCESS CONNECTIONS SHEET ---
-    const connectionsSheet = workbook.Sheets['Connections'];
     if (connectionsSheet) {
       const rows = XLSX.utils.sheet_to_json<any>(connectionsSheet, { defval: null });
-      for (const row of rows) {
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const errors: string[] = [];
+
         const connection_id = row['Connection ID']?.toString().trim();
         const node_a_val = row['Node A'];
         const node_b_val = row['Node B'];
 
-        if (!connection_id || node_a_val === null || node_b_val === undefined) continue;
+        const node_a = parseInt(node_a_val?.toString().trim(), 10);
+        const node_b = parseInt(node_b_val?.toString().trim(), 10);
 
-        const node_a = parseInt(node_a_val.toString().trim(), 10);
-        const node_b = parseInt(node_b_val.toString().trim(), 10);
-        if (isNaN(node_a) || isNaN(node_b)) continue;
+        if (!connection_id) errors.push('Missing Connection ID');
+        if (isNaN(node_a)) errors.push('Missing or invalid Node A');
+        if (isNaN(node_b)) errors.push('Missing or invalid Node B');
+
+        if (!isNaN(node_a)) {
+           if (!dbNodesMap.has(node_a) && !currentUploadNodeIds.has(node_a)) {
+              errors.push(`Node A (${node_a}) does not exist in DB or current upload`);
+           }
+        }
+        if (!isNaN(node_b)) {
+           if (!dbNodesMap.has(node_b) && !currentUploadNodeIds.has(node_b)) {
+              errors.push(`Node B (${node_b}) does not exist in DB or current upload`);
+           }
+        }
+
+        validationReport.connections.details.push({
+           id: connection_id || `Row ${i + 2}`,
+           status: errors.length > 0 ? 'error' : 'valid',
+           errors,
+        });
+
+        if (errors.length > 0) {
+           validationReport.connections.errorCount++;
+           continue;
+        }
+
+        validationReport.connections.validCount++;
 
         const excelConnection = { connection_id, node_a, node_b };
         const dbConn = dbConnectionsMap.get(connection_id);
@@ -340,6 +470,7 @@ export async function POST(request: NextRequest) {
         connections: connectionsToInsert
       },
       conflicts,
+      validationReport,
     });
   } catch (error: any) {
     console.error('Error importing Excel:', error);

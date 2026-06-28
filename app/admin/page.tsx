@@ -101,6 +101,7 @@ function AdminPageInner() {
   const [pendingFilename, setPendingFilename] = useState<string>('');
   const [pendingPreview, setPendingPreview] = useState<any | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState<boolean>(false);
+  const [postVerificationReport, setPostVerificationReport] = useState<any | null>(null);
 
   // Upload logs
   const [uploadLogs, setUploadLogs] = useState<UploadLogEntry[]>([]);
@@ -227,6 +228,7 @@ function AdminPageInner() {
 
     setPendingFilename(file.name);
     setUploadStatus('Parsing file and checking database for conflicts...');
+    setPostVerificationReport(null);
 
     const formData = new FormData();
     formData.append('file', file);
@@ -257,8 +259,7 @@ function AdminPageInner() {
     if (!pendingPreview) return;
 
     setUploadStatus('Writing new records to the database...');
-    setShowPreviewModal(false);
-
+    
     try {
       const res = await fetch('/api/admin/import-confirm', {
         method: 'POST',
@@ -273,7 +274,10 @@ function AdminPageInner() {
 
       const data = await res.json();
       if (res.ok) {
-        setUploadStatus('Import completed. Stale conflict rows are highlighted in red below.');
+        setUploadStatus('Import completed.');
+        if (data.verificationReport) {
+          setPostVerificationReport(data.verificationReport);
+        }
 
         const newLog: UploadLogEntry = {
           timestamp: new Date().toISOString(),
@@ -1212,55 +1216,177 @@ function AdminPageInner() {
 
       {/* Preview Before Commit Dialog/Modal */}
       {showPreviewModal && pendingPreview && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-[#0f1422] border border-slate-800 rounded-lg max-w-md w-full p-6 shadow-2xl">
-            <h2 className="text-base font-bold text-slate-100 mb-2 tracking-wide font-sans">
-              Import Preview Summary
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in overflow-y-auto">
+          <div className="bg-[#0f1422] border border-slate-800 rounded-lg max-w-4xl w-full p-6 shadow-2xl my-8">
+            <h2 className="text-xl font-bold text-slate-100 mb-2 tracking-wide font-sans">
+              Ledger Import Summary
             </h2>
             <p className="text-xs text-indigo-400 font-mono mb-4 truncate" title={pendingFilename}>
               File: {pendingFilename}
             </p>
 
-            <div className="space-y-3 mb-6 font-mono text-xs border-y border-slate-800 py-4">
-              <div className="flex justify-between">
-                <span className="text-slate-400">New Events to be added:</span>
-                <span className="text-emerald-400 font-bold">{pendingPreview.summary.addedEvents}</span>
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <h3 className="text-sm font-bold text-slate-300 border-b border-slate-700 pb-2 mb-3">Pre-Upload Analysis</h3>
+                <div className="space-y-4 font-mono text-xs max-h-[400px] overflow-y-auto pr-2">
+                  <div>
+                    <h4 className="font-bold text-indigo-300 mb-1">Events ({pendingPreview.validationReport?.events.total || 0} rows)</h4>
+                    {pendingPreview.validationReport?.events.errorCount > 0 && (
+                      <p className="text-red-400 mb-2">{pendingPreview.validationReport.events.errorCount} errors found</p>
+                    )}
+                    <ul className="space-y-1">
+                      {pendingPreview.validationReport?.events.details.map((d: any, i: number) => (
+                        <li key={i} className={`p-1.5 rounded ${d.status === 'error' ? 'bg-red-900/30 border border-red-800/50' : ''}`}>
+                          <span className="font-bold">{d.id}</span>: {d.title} {d.isNew ? '(New)' : '(Existing)'}
+                          {d.status === 'error' && (
+                            <ul className="text-red-400 mt-1 ml-4 list-disc">
+                              {d.errors.map((err: string, j: number) => <li key={j}>{err}</li>)}
+                            </ul>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div>
+                    <h4 className="font-bold text-indigo-300 mb-1">Nodes ({pendingPreview.validationReport?.nodes.total || 0} rows)</h4>
+                    {pendingPreview.validationReport?.nodes.errorCount > 0 && (
+                      <p className="text-red-400 mb-2">{pendingPreview.validationReport.nodes.errorCount} errors found</p>
+                    )}
+                    <ul className="space-y-1">
+                      {pendingPreview.validationReport?.nodes.details.filter((d: any) => d.status === 'error').map((d: any, i: number) => (
+                        <li key={i} className="bg-red-900/30 border border-red-800/50 p-1.5 rounded">
+                          <span className="font-bold">Node {d.id}</span>: {d.title}
+                          <ul className="text-red-400 mt-1 ml-4 list-disc">
+                            {d.errors.map((err: string, j: number) => <li key={j}>{err}</li>)}
+                          </ul>
+                        </li>
+                      ))}
+                      {pendingPreview.validationReport?.nodes.errorCount === 0 && (
+                        <li className="text-emerald-400">All nodes valid.</li>
+                      )}
+                    </ul>
+                  </div>
+
+                  <div>
+                    <h4 className="font-bold text-indigo-300 mb-1">Connections ({pendingPreview.validationReport?.connections.total || 0} rows)</h4>
+                    {pendingPreview.validationReport?.connections.errorCount > 0 && (
+                      <p className="text-red-400 mb-2">{pendingPreview.validationReport.connections.errorCount} errors found</p>
+                    )}
+                    <ul className="space-y-1">
+                      {pendingPreview.validationReport?.connections.details.filter((d: any) => d.status === 'error').map((d: any, i: number) => (
+                        <li key={i} className="bg-red-900/30 border border-red-800/50 p-1.5 rounded">
+                          <span className="font-bold">{d.id}</span>
+                          <ul className="text-red-400 mt-1 ml-4 list-disc">
+                            {d.errors.map((err: string, j: number) => <li key={j}>{err}</li>)}
+                          </ul>
+                        </li>
+                      ))}
+                      {pendingPreview.validationReport?.connections.errorCount === 0 && (
+                        <li className="text-emerald-400">All connections valid.</li>
+                      )}
+                    </ul>
+                  </div>
+                </div>
+
+                <div className="space-y-2 mt-4 pt-4 border-t border-slate-700 font-mono text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">New Events:</span>
+                    <span className="text-emerald-400 font-bold">{pendingPreview.summary.addedEvents}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">New Nodes:</span>
+                    <span className="text-emerald-400 font-bold">{pendingPreview.summary.addedNodes}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">New Connections:</span>
+                    <span className="text-emerald-400 font-bold">{pendingPreview.summary.addedConnections}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Conflicts:</span>
+                    <span className="text-red-400 font-bold">{pendingPreview.summary.conflicts}</span>
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">New Nodes to be added:</span>
-                <span className="text-emerald-400 font-bold">{pendingPreview.summary.addedNodes}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">New Connections to be added:</span>
-                <span className="text-emerald-400 font-bold">{pendingPreview.summary.addedConnections}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Identical rows to be skipped:</span>
-                <span className="text-slate-500">{pendingPreview.summary.skipped}</span>
-              </div>
-              <div className="flex justify-between border-t border-slate-900 pt-2 mt-2">
-                <span className="text-slate-400 font-bold text-red-400">Conflicts flagged (stale records):</span>
-                <span className="text-red-400 font-bold">{pendingPreview.summary.conflicts}</span>
+
+              <div>
+                <h3 className="text-sm font-bold text-slate-300 border-b border-slate-700 pb-2 mb-3">Post-Upload Verification</h3>
+                {!postVerificationReport ? (
+                   <div className="flex flex-col items-center justify-center h-[300px] text-slate-500 text-xs text-center border border-dashed border-slate-700 rounded p-6">
+                     <p>Verification will run automatically after import is confirmed.</p>
+                   </div>
+                ) : (
+                  <div className="space-y-4 font-mono text-xs max-h-[400px] overflow-y-auto pr-2">
+                    <div>
+                      <h4 className="font-bold text-indigo-300 mb-1">Events Verification</h4>
+                      <ul className="space-y-1">
+                        {postVerificationReport.events.map((r: any, i: number) => (
+                          <li key={i} className="flex gap-2 items-start">
+                             <span className={r.status === 'valid' ? 'text-emerald-400' : 'text-red-500'}>
+                               {r.status === 'valid' ? '✓' : '⚠'}
+                             </span>
+                             <span className={r.status === 'valid' ? 'text-slate-300' : 'text-red-400 font-bold'}>{r.message}</span>
+                          </li>
+                        ))}
+                        {postVerificationReport.events.length === 0 && <li className="text-slate-500">No new events to verify.</li>}
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-indigo-300 mb-1">Nodes Verification</h4>
+                      <ul className="space-y-1">
+                        {postVerificationReport.nodes.map((r: any, i: number) => (
+                          <li key={i} className="flex gap-2 items-start">
+                             <span className={r.status === 'valid' ? 'text-emerald-400' : 'text-red-500'}>
+                               {r.status === 'valid' ? '✓' : '⚠'}
+                             </span>
+                             <span className={r.status === 'valid' ? 'text-slate-300' : 'text-red-400 font-bold'}>{r.message}</span>
+                          </li>
+                        ))}
+                        {postVerificationReport.nodes.length === 0 && <li className="text-slate-500">No new nodes to verify.</li>}
+                      </ul>
+                    </div>
+
+                    <div>
+                      <h4 className="font-bold text-indigo-300 mb-1">Connections Verification</h4>
+                      <ul className="space-y-1">
+                        {postVerificationReport.connections.map((r: any, i: number) => (
+                          <li key={i} className="flex gap-2 items-start">
+                             <span className={r.status === 'valid' ? 'text-emerald-400' : 'text-red-500'}>
+                               {r.status === 'valid' ? '✓' : '⚠'}
+                             </span>
+                             <span className={r.status === 'valid' ? 'text-slate-300' : 'text-red-400 font-bold'}>{r.message}</span>
+                          </li>
+                        ))}
+                        {postVerificationReport.connections.length === 0 && <li className="text-slate-500">No new connections to verify.</li>}
+                      </ul>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
-            <p className="text-[11px] text-slate-400 italic mb-6">
-              * Conflicts will not overwrite database tables automatically. They will be loaded into the workspace highlighted in red, where you can inspect differences and choose to overwrite or dismiss them manually.
-            </p>
-
-            <div className="flex justify-end gap-3">
+            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-800">
               <button
-                onClick={handleCancelImport}
+                onClick={() => { setShowPreviewModal(false); setPostVerificationReport(null); }}
                 className="px-4 py-2 border border-slate-700 hover:bg-slate-800 text-slate-200 text-xs font-semibold rounded cursor-pointer transition-colors"
               >
-                Cancel & Discard
+                {postVerificationReport ? 'Close' : 'Cancel & Discard'}
               </button>
-              <button
-                onClick={handleConfirmImport}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded cursor-pointer transition-colors shadow-lg shadow-emerald-950/20"
-              >
-                Confirm Import
-              </button>
+              {!postVerificationReport && (
+                <button
+                  onClick={handleConfirmImport}
+                  disabled={pendingPreview.validationReport?.events.errorCount > 0 || pendingPreview.validationReport?.nodes.errorCount > 0 || pendingPreview.validationReport?.connections.errorCount > 0}
+                  className={`px-4 py-2 text-xs font-semibold rounded transition-colors shadow-lg ${
+                    pendingPreview.validationReport?.events.errorCount > 0 || pendingPreview.validationReport?.nodes.errorCount > 0 || pendingPreview.validationReport?.connections.errorCount > 0
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer shadow-emerald-950/20'
+                  }`}
+                  title={(pendingPreview.validationReport?.events.errorCount > 0 || pendingPreview.validationReport?.nodes.errorCount > 0 || pendingPreview.validationReport?.connections.errorCount > 0) ? 'Cannot import with validation errors' : ''}
+                >
+                  Confirm Import
+                </button>
+              )}
             </div>
           </div>
         </div>
